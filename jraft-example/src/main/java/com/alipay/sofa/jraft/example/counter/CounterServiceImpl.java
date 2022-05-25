@@ -99,6 +99,7 @@ public class CounterServiceImpl implements CounterService {
 
     private void applyOperation(final CounterOperation op, final CounterClosure closure) {
         if (!isLeader()) {
+            // 非leader，生成跳转请求
             handlerNotLeaderError(closure);
             return;
         }

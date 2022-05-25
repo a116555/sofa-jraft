@@ -40,6 +40,7 @@ public class IncrementAndGetRequestProcessor implements RpcProcessor<IncrementAn
 
     @Override
     public void handleRequest(final RpcContext rpcCtx, final IncrementAndGetRequest request) {
+        //closure回调处理，在状态机处理了该回调。
         final CounterClosure closure = new CounterClosure() {
             @Override
             public void run(Status status) {
@@ -47,6 +48,7 @@ public class IncrementAndGetRequestProcessor implements RpcProcessor<IncrementAn
             }
         };
 
+        // 处理请求（非leader直接跳转）
         this.counterService.incrementAndGet(request.getDelta(), closure);
     }
 

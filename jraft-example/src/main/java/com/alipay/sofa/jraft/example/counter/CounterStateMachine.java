@@ -18,10 +18,12 @@ package com.alipay.sofa.jraft.example.counter;
 
 import static com.alipay.sofa.jraft.example.counter.CounterOperation.GET;
 import static com.alipay.sofa.jraft.example.counter.CounterOperation.INCREMENT;
+
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicLong;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.alipay.remoting.exception.CodecException;
@@ -41,21 +43,21 @@ import com.alipay.sofa.jraft.util.Utils;
  * Counter state machine.
  *
  * @author boyan (boyan@alibaba-inc.com)
- *
+ * <p>
  * 2018-Apr-09 4:52:31 PM
  */
 public class CounterStateMachine extends StateMachineAdapter {
 
-    private static final Logger LOG        = LoggerFactory.getLogger(CounterStateMachine.class);
+    private static final Logger LOG = LoggerFactory.getLogger(CounterStateMachine.class);
 
     /**
-     * Counter value
+     * Counter value 首先持有一个初始值：
      */
-    private final AtomicLong    value      = new AtomicLong(0);
+    private final AtomicLong value = new AtomicLong(0);
     /**
      * Leader term
      */
-    private final AtomicLong    leaderTerm = new AtomicLong(-1);
+    private final AtomicLong leaderTerm = new AtomicLong(-1);
 
     public boolean isLeader() {
         return this.leaderTerm.get() > 0;
@@ -68,23 +70,32 @@ public class CounterStateMachine extends StateMachineAdapter {
         return this.value.get();
     }
 
+    /**
+     * 实现核心的 onApply(iterator) 方法，应用用户提交的请求到状态机：
+     *
+     * @param iter iterator of states
+     */
     @Override
     public void onApply(final Iterator iter) {
+        // 遍历日志
         while (iter.hasNext()) {
             long current = 0;
             CounterOperation counterOperation = null;
 
             CounterClosure closure = null;
+            // done 回调不为null，必须在应用日志后调用，如果不为 null，说明当前是leader。
             if (iter.done() != null) {
                 // This task is applied by this node, get value from closure to avoid additional parsing.
+                // 当前是leader，可以直接从 IncrementAndAddClosure 中获取 delta，避免反序列化
                 closure = (CounterClosure) iter.done();
                 counterOperation = closure.getCounterOperation();
             } else {
                 // Have to parse FetchAddRequest from this user log.
+                // 其他节点应用此日志，需要反序列化 IncrementAndGetRequest，获取 delta
                 final ByteBuffer data = iter.getData();
                 try {
                     counterOperation = SerializerManager.getSerializer(SerializerManager.Hessian2).deserialize(
-                        data.array(), CounterOperation.class.getName());
+                            data.array(), CounterOperation.class.getName());
                 } catch (final CodecException e) {
                     LOG.error("Fail to decode IncrementAndGetRequest", e);
                 }
@@ -98,11 +109,16 @@ public class CounterStateMachine extends StateMachineAdapter {
                     case INCREMENT:
                         final long delta = counterOperation.getDelta();
                         final long prev = this.value.get();
+                        // 更新状态机
                         current = this.value.addAndGet(delta);
                         LOG.info("Added value={} by delta={} at logIndex={}", prev, delta, iter.getIndex());
                         break;
+                    default:
+                        LOG.info("未知操作");
+                        break;
                 }
 
+                // 更新后，确保调用 done，返回应答给客户端。类似http response
                 if (closure != null) {
                     closure.success(current);
                     closure.run(Status.OK());
